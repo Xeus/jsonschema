@@ -8,6 +8,28 @@ The main functionality is provided by the :class:`Validator` class, with the
 The :class:`Validator` class generally attempts to be as strict as possible
 under the JSON Schema specification. See its docstring for details.
 
+(ADDED BY TURNER:)
+ERROR CODES:
+910 - type
+911 - propertiesInstance
+912 - propertiesSchema
+913 - additionalProperties
+914 - itemsAdditional
+915 - minimum
+916 - maximum
+917 - minItems
+918 - maxItems
+919 - uniqueItems
+920 - pattern
+921 - minLength
+922 - maxLength
+923 - enum
+924 - divisibleBy
+925 - disallow
+926 - email
+
+Email regex via: http://www.regular-expressions.info/email.html
+
 """
 
 from __future__ import division, unicode_literals
@@ -111,6 +133,7 @@ DRAFT_3 = {
         "maxItems" : {"type" : "integer", "minimum" : 0},
         "uniqueItems" : {"type" : "boolean", "default" : False},
         "pattern" : {"type" : "string", "format" : "regex"},
+        "email" : {"type" : "string", "format" : "regex"},
         "minLength" : {"type" : "integer", "minimum" : 0, "default" : 0},
         "maxLength" : {"type" : "integer"},
         "enum" : {"type" : "array", "minItems" : 1, "uniqueItems" : True},
@@ -179,9 +202,12 @@ class ValidationError(Exception):
     # is immediately above the validation failure
     validator = None
 
-    def __init__(self, message):
+    # ADDED BY TURNER
+    def __init__(self, message, errorCode):
         super(ValidationError, self).__init__(message)
         self.message = message
+        # ADDED BY TURNER
+        self.errorCode = errorCode
 
         # Any validator that recurses must append to the ValidationError's
         # path (e.g., properties and items)
@@ -359,7 +385,7 @@ class Validator(object):
                 return
         else:
             yield ValidationError(
-                "%r is not of type %r" % (instance, _delist(types))
+                "%r is not of type %r" % (instance, _delist(types)), errorCode=910
             )
 
     def validate_properties(self, properties, instance, schema):
@@ -378,7 +404,7 @@ class Validator(object):
                     for dependency in dependencies:
                         if dependency not in instance:
                             yield ValidationError(
-                            "%r is a dependency of %r" % (dependency, property)
+                            "%r is a dependency of %r" % (dependency, property), errorCode=912
                             )
 
                 for error in self.iter_errors(
@@ -417,7 +443,7 @@ class Validator(object):
                     yield error
         elif not aP and extras:
             error = "Additional properties are not allowed (%s %s unexpected)"
-            yield ValidationError(error % _extras_msg(extras))
+            yield ValidationError(error % _extras_msg(extras), errorCode=913)
 
     def validate_items(self, items, instance, schema):
         if not self.is_type(instance, "array"):
@@ -449,7 +475,7 @@ class Validator(object):
         elif not aI and len(instance) > len(schema.get("items", [])):
             error = "Additional items are not allowed (%s %s unexpected)"
             yield ValidationError(
-                error % _extras_msg(instance[len(schema) - 1:])
+                error % _extras_msg(instance[len(schema) - 1:]), errorCode=914
             )
 
     def validate_minimum(self, minimum, instance, schema):
@@ -466,7 +492,7 @@ class Validator(object):
 
         if failed:
             yield ValidationError(
-                "%r is %s the minimum of %r" % (instance, cmp, minimum)
+                "%r is %s the minimum of %r" % (instance, cmp, minimum), errorCode=915
             )
 
     def validate_maximum(self, maximum, instance, schema):
@@ -483,36 +509,36 @@ class Validator(object):
 
         if failed:
             yield ValidationError(
-                "%r is %s the maximum of %r" % (instance, cmp, maximum)
+                "%r is %s the maximum of %r" % (instance, cmp, maximum), errorCode=916
             )
 
     def validate_minItems(self, mI, instance, schema):
         if self.is_type(instance, "array") and len(instance) < mI:
-            yield ValidationError("%r is too short" % (instance,))
+            yield ValidationError("%r is too short" % (instance,), errorCode=917)
 
     def validate_maxItems(self, mI, instance, schema):
         if self.is_type(instance, "array") and len(instance) > mI:
-            yield ValidationError("%r is too long" % (instance,))
+            yield ValidationError("%r is too long" % (instance,), errorCode=918)
 
     def validate_uniqueItems(self, uI, instance, schema):
         if uI and self.is_type(instance, "array") and not _uniq(instance):
-            yield ValidationError("%r has non-unique elements" % instance)
+            yield ValidationError("%r has non-unique elements" % instance, errorCode=919)
 
     def validate_pattern(self, patrn, instance, schema):
         if self.is_type(instance, "string") and not re.match(patrn, instance):
-            yield ValidationError("%r does not match %r" % (instance, patrn))
+            yield ValidationError("%r does not match %r" % (instance, patrn), errorCode=920)
 
     def validate_minLength(self, mL, instance, schema):
         if self.is_type(instance, "string") and len(instance) < mL:
-            yield ValidationError("%r is too short" % (instance,))
+            yield ValidationError("%r is too short" % (instance,), errorCode=921)
 
     def validate_maxLength(self, mL, instance, schema):
         if self.is_type(instance, "string") and len(instance) > mL:
-            yield ValidationError("%r is too long" % (instance,))
+            yield ValidationError("%r is too long" % (instance,), errorCode=922)
 
     def validate_enum(self, enums, instance, schema):
         if instance not in enums:
-            yield ValidationError("%r is not one of %r" % (instance, enums))
+            yield ValidationError("%r is not one of %r" % (instance, enums), errorCode=923)
 
     def validate_divisibleBy(self, dB, instance, schema):
         if not self.is_type(instance, "number"):
@@ -525,13 +551,13 @@ class Validator(object):
             failed = instance % dB
 
         if failed:
-            yield ValidationError("%r is not divisible by %r" % (instance, dB))
+            yield ValidationError("%r is not divisible by %r" % (instance, dB), errorCode=924)
 
     def validate_disallow(self, disallow, instance, schema):
         for disallowed in _list(disallow):
             if self.is_valid(instance, {"type" : [disallowed]}):
                 yield ValidationError(
-                    "%r is disallowed for %r" % (disallowed, instance)
+                    "%r is disallowed for %r" % (disallowed, instance), errorCode=925
                 )
 
     def validate_extends(self, extends, instance, schema):
@@ -543,6 +569,10 @@ class Validator(object):
             ):
                 yield error
 
+    pattern_email = re.compile("[a-z0-9!#$%&'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+\/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?")
+    def validate_email(self, patrn, instance, schema):
+        if self.is_type(instance, "string") and not self.pattern_email.match(instance):
+            yield ValidationError("%r is not a valid email address" % (instance,), errorCode=926)
 
 for no_op in [                                  # handled in:
     "dependencies", "required",                 # properties
